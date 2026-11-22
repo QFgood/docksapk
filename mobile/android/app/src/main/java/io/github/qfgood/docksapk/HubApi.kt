@@ -121,6 +121,13 @@ class LocalStore(context: Context) {
     fun cache(id: String): JSONObject? =
         prefs.getString("cards-$id", null)?.let { runCatching { JSONObject(it) }.getOrNull() }
 
+    fun saveHost(id: String, sample: JSONObject) {
+        prefs.edit().putString("host-$id", sample.toString()).apply()
+    }
+
+    fun cachedHost(id: String): JSONObject? =
+        prefs.getString("host-$id", null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+
     fun clear() {
         prefs.edit().clear().commit()
         if (keys.containsAlias(alias)) keys.deleteEntry(alias)
@@ -265,7 +272,7 @@ fun explain(error: Throwable): String = when (error) {
         error.code == "invalid_or_expired_code" -> "配对码错误、已使用或已过期。"
         error.code == "invalid_pair_request" -> "配对码应为 12 位字符，请检查后重试。"
         error.code == "invalid_shortcut" -> "卡片内容无效，请检查名称、排序和 HTTPS 地址。"
-        error.code == "invalid_device" -> "这台设备的凭证已失效，请在设置中解绑后重新配对。"
+        error.code == "invalid_device" -> "这台设备的凭证已失效，请重新配对。"
         error.code == "redirect" -> "后端返回了跳转，请填写最终 HTTPS 地址。"
         error.status == 412 -> "另一台设备已修改数据，请使用刷新后的版本重试。"
         error.status == 429 -> "请求过于频繁，请稍后重试。"

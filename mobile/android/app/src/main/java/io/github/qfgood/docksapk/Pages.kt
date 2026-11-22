@@ -92,6 +92,38 @@ internal fun CardEditor(card: ServiceCard, busy: Boolean, serverError: String, o
     )
 }
 
+@Composable
+internal fun CardOrderDialog(group: String, cards: List<ServiceCard>, busy: Boolean, error: String,
+    onDismiss: () -> Unit, onSave: (List<ServiceCard>) -> Unit) {
+    var ordered by remember(cards) { mutableStateOf(cards) }
+
+    fun move(from: Int, to: Int) {
+        ordered = ordered.toMutableList().apply { add(to, removeAt(from)) }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("排序 · $group") },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                if (error.isNotBlank()) item { StatusLine(error, true) }
+                items(ordered, key = { it.id }) { card ->
+                    val index = ordered.indexOf(card)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(card.name, Modifier.weight(1f))
+                        TextButton(enabled = !busy && index > 0, onClick = { move(index, index - 1) }) { Text("上移") }
+                        TextButton(enabled = !busy && index < ordered.lastIndex, onClick = { move(index, index + 1) }) { Text("下移") }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy && ordered != cards, onClick = { onSave(ordered) }) { Text("保存顺序") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("取消") } },
+    )
+}
+
 private val demoHost = JSONObject("""{
     "cpu_percent":12.4,"memory_used":2936012800,"memory_total":8589934592,
     "disk_used":19327352832,"disk_total":118111600640,"rx_bps":1234,"tx_bps":425,
@@ -107,7 +139,12 @@ internal fun HostScreen(sample: JSONObject?, demo: Boolean, online: Boolean) {
         else if (data?.optString("sampled_at").orEmpty().isNotBlank()) item {
             val at = data?.optString("sampled_at").orEmpty()
             val stale = runCatching { Instant.now().epochSecond - Instant.parse(at).epochSecond > 90 }.getOrDefault(true)
-            StatusLine("采样 ${date(at)}${if (!online || stale) " · 数据可能过期" else ""}", !online || stale)
+            val status = when {
+                !online -> " · 离线缓存"
+                stale -> " · 采样已过期"
+                else -> ""
+            }
+            StatusLine("采样 ${date(at)}$status", !online || stale)
         }
         if (data == null || data.optString("state") == "unavailable") item { StatusLine("等待 Ubuntu 主机采集结果。") }
         else {
@@ -124,6 +161,10 @@ internal fun HostScreen(sample: JSONObject?, demo: Boolean, online: Boolean) {
                 val state = data.optString("docker_state")
                 if (state != "ok") StatusLine(if (state == "disabled") "Docker 采集器尚未配置。" else "Docker 采集器暂不可用。")
                 else if (data.optJSONArray("containers").objects().isEmpty()) StatusLine("暂无容器。")
+                val dockerAt = data.optString("docker_sampled_at")
+                if (dockerAt.isNotBlank()) {
+                    Text("Docker 采样 ${date(dockerAt)}", style = MaterialTheme.typography.bodySmall)
+                }
             }
             items(data.optJSONArray("containers").objects()) { c ->
                 val health = when (c.optString("health")) {
