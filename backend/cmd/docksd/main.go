@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -31,7 +32,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: docksd serve|pair-code|devices|revoke|import|seed-demo [flags]")
+		return errors.New("usage: docksd serve|pair-code|devices|revoke|shortcuts|import|seed-demo [flags]")
 	}
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -49,7 +50,7 @@ func run(args []string) error {
 		disk = flags.String("disk", "/", "filesystem path to monitor")
 		socket = flags.String("collector", "", "optional read-only collector Unix socket")
 		demo = flags.Bool("demo", false, "enable independent test project page")
-	case "pair-code", "devices":
+	case "pair-code", "devices", "shortcuts":
 	case "revoke":
 		device = flags.String("device", "", "device ID")
 	case "import":
@@ -104,6 +105,14 @@ func run(args []string) error {
 			fmt.Printf("%s\t%s\t%s\n", id, name, created)
 		}
 		return rows.Err()
+	case "shortcuts":
+		items, err := hub.ListShortcuts(context.Background(), db)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			fmt.Printf("%s\t%s\t%s\n", item.ID, item.Group, item.Name)
+		}
 	case "revoke":
 		if *device == "" {
 			return errors.New("--device is required")
@@ -193,6 +202,20 @@ func serve(db *sql.DB, address, cert, key, disk string, config hub.Config) error
 			if !hub.ValidSource(source) || len(key) < 24 || strings.TrimSpace(key) != key {
 				return errors.New("invalid webhook source or key shorter than 24 characters")
 			}
+		}
+	}
+	if raw := os.Getenv("DOCKS_DOCKER_SHORTCUTS"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &config.DockerShortcuts); err != nil || config.DockerShortcuts == nil {
+			return errors.New("DOCKS_DOCKER_SHORTCUTS must be a JSON object")
+		}
+		for service, id := range config.DockerShortcuts {
+			if strings.TrimSpace(service) != service || service == "" {
+				return errors.New("DOCKS_DOCKER_SHORTCUTS contains an invalid service name")
+			}
+			if _, err := hex.DecodeString(id); err != nil || len(id) != 32 {
+				return fmt.Errorf("invalid shortcut ID for Docker service %q", service)
+			}
+			config.DockerShortcuts[service] = strings.ToLower(id)
 		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -90,6 +90,20 @@ func cards(tx *sql.Tx, rev int64, id string) ([]Shortcut, error) {
 	return list, rows.Err()
 }
 
+// ListShortcuts returns the visible, effective cards for local administration.
+func ListShortcuts(ctx context.Context, db *sql.DB) ([]Shortcut, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rev, err := shortcutRevision(tx)
+	if err != nil {
+		return nil, err
+	}
+	return cards(tx, rev, "")
+}
+
 func shortcutRevision(tx *sql.Tx) (int64, error) {
 	var rev int64
 	err := tx.QueryRow("SELECT shortcuts_version FROM instance WHERE singleton = 1").Scan(&rev)

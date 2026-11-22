@@ -362,7 +362,7 @@ components:
         service: {type: string}
         level: {$ref: '#/components/schemas/Level'}
         summary: {type: string}
-        shortcut_id: {type: string}
+        shortcut_id: {type: string, description: Visible project card resolved from the current Docker mapping or supplied with a webhook event}
         recovery_of: {type: string}
         read: {type: boolean}
     Host:

@@ -62,6 +62,22 @@ curl --fail-with-body https://hub.example.net/v1/webhooks/example \
 
 Docker 健康检查只记录状态变化。同一容器恢复健康时，恢复事件会关联最近一次未恢复的告警。相同容器的相同异常退出或 OOM 告警在 5 分钟内只记录一次。每批 Docker 事件和采集游标同时提交，写入失败时会保留上次游标以便重试。
 
+## 将 Docker 事件关联到项目卡片
+
+先创建或导入项目卡片，再用本地命令查询卡片 ID。
+
+```sh
+sudo -u docks docksd shortcuts --db /var/lib/docksapk/docks.db
+```
+
+命令按「ID、分组、名称」列出可见卡片。在 `/etc/docksapk/docksd.env` 中配置服务名与卡片 ID 的映射，随后重启 `docksd`。键取通知页中的 Docker 服务名，区分大小写。有 Compose 项目标签时是项目名，否则是容器名。将下方示例中的服务名和 ID 换成自己的值。
+
+```sh
+DOCKS_DOCKER_SHORTCUTS='{"media":"0123456789abcdef0123456789abcdef"}'
+```
+
+读取事件时按当前映射查找可见卡片，因此历史事件也可打开关联项目。隐藏或删除卡片后，该项目入口会从 Docker 事件详情消失。Webhook 的显式 `shortcut_id` 仍按原方式解析。
+
 ## 构建与升级
 
 Android 使用 JDK 17、Gradle Wrapper 8.10.2、AGP 8.7.3、SDK 35。安装 SDK Platform 35 和 Build Tools 34.0.0（AGP 默认）后执行：
