@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.net.http.SslError
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -55,6 +56,7 @@ internal fun ProjectPage(card: ServiceCard, preferRemote: Boolean, demoAsset: St
     var web by remember { mutableStateOf<WebView?>(null) }
     var error by remember { mutableStateOf("") }
     var progress by remember { mutableIntStateOf(0) }
+    var rendererGone by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     var file by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     val chooser = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -87,7 +89,10 @@ internal fun ProjectPage(card: ServiceCard, preferRemote: Boolean, demoAsset: St
         TopAppBar(title = { Text(card.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { TextButton(onClick = ::goBack) { Text("返回") } },
             actions = {
-                TextButton(onClick = { error = ""; web?.reload() }) { Text("刷新") }
+                TextButton(onClick = {
+                    error = ""
+                    if (rendererGone) rendererGone = false else web?.reload()
+                }) { Text("刷新") }
                 Box {
                     TextButton(onClick = { more = true }) { Text("更多") }
                     DropdownMenu(more, { more = false }) {
@@ -98,7 +103,9 @@ internal fun ProjectPage(card: ServiceCard, preferRemote: Boolean, demoAsset: St
                                     more = false
                                     address = if (address == card.lan) card.remote else card.lan
                                     error = ""
-                                    if (allowed(address)) web?.loadUrl(address)
+                                    if (allowed(address)) {
+                                        if (rendererGone) rendererGone = false else web?.loadUrl(address)
+                                    }
                                 })
                         }
                         if (!demo) {
@@ -119,7 +126,7 @@ internal fun ProjectPage(card: ServiceCard, preferRemote: Boolean, demoAsset: St
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             if (progress in 1..99) LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
             if (error.isNotBlank()) StatusLine(error, true, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
-            AndroidView(
+            if (!rendererGone) AndroidView(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 factory = { ctx ->
                     WebView(ctx).apply {
@@ -172,6 +179,18 @@ internal fun ProjectPage(card: ServiceCard, preferRemote: Boolean, demoAsset: St
                                 }
                             }
 
+                            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                                // The failed WebView cannot be reused. Removing AndroidView
+                                // releases it before the user can create a new renderer.
+                                if (web === view) {
+                                    web = null
+                                    rendererGone = true
+                                    progress = 100
+                                    error = "网页渲染进程已退出。请点「刷新」重试。"
+                                }
+                                return true
+                            }
+
                             override fun onPageFinished(view: WebView, url: String) {
                                 CookieManager.getInstance().flush()
                             }
@@ -200,7 +219,10 @@ internal fun ProjectPage(card: ServiceCard, preferRemote: Boolean, demoAsset: St
                         if (allowed(address)) loadUrl(address) else error = "项目地址不符合 HTTPS 要求。"
                     }
                 },
-                onRelease = { view -> view.stopLoading(); view.destroy() },
+                onRelease = { view ->
+                    if (web === view) web = null
+                    view.destroy()
+                },
             )
         }
     }
