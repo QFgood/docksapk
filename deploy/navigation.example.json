@@ -1,0 +1,15 @@
+{
+  "complete": true,
+  "items": [
+    {
+      "source_id": "sample-dashboard",
+      "name": "项目示例",
+      "group_id": "常用服务",
+      "position": 0,
+      "icon": "项",
+      "lan_url": "https://project.example.net/",
+      "tailnet_url": "https://project.example.ts.net/",
+      "trusted_origins": ["https://login.example.net"]
+    }
+  ]
+}

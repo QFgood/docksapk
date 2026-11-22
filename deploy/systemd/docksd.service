@@ -1,0 +1,29 @@
+[Unit]
+Description=DocksAPK LAN service API
+After=network.target docks-collector.service
+Wants=docks-collector.service
+
+[Service]
+Type=simple
+User=docks
+Group=docks
+StateDirectory=docksapk
+StateDirectoryMode=0700
+UMask=0077
+EnvironmentFile=-/etc/docksapk/docksd.env
+ExecStart=/usr/local/bin/docksd serve --db /var/lib/docksapk/docks.db --listen 127.0.0.1:8080 --collector /run/docks-collector/docker.sock $DOCKS_API_ARGS
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
