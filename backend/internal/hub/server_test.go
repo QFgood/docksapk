@@ -252,3 +252,45 @@ func TestWebhookSharedReadAndDemoForm(t *testing.T) {
 		t.Fatalf("project form failed: %d %s", res.StatusCode, html)
 	}
 }
+
+func TestShortcutOrderRejectsStaleAndInvalidRequestsAtomically(t *testing.T) {
+	f := newFixture(t)
+	first, second := f.pair(), f.pair()
+	create := func(name, group string, position int) Shortcut {
+		t.Helper()
+		var item Shortcut
+		f.expect(201, "POST", "/v1/shortcuts", first.Token,
+			Card{Name: name, Group: group, Position: position, LAN: f.server.URL + "/demo/"}, nil, &item)
+		return item
+	}
+	a := create("A", "Home", 0)
+	b := create("B", "Home", 1)
+	other := create("C", "Other", 7)
+
+	// Invalid IDs are rejected even after earlier updates in the transaction.
+	version := f.expect(200, "GET", "/v1/shortcuts", first.Token, nil, nil, nil).Get("ETag")
+	guard := map[string]string{"If-Match": version}
+	f.expect(400, "PUT", "/v1/shortcut-order", first.Token,
+		map[string]any{"group_id": "Home", "ids": []string{b.ID, other.ID}}, guard, nil)
+	f.expect(304, "GET", "/v1/shortcuts", second.Token, nil, map[string]string{"If-None-Match": version}, nil)
+	var unchanged cardList
+	f.expect(200, "GET", "/v1/shortcuts", second.Token, nil, nil, &unchanged)
+	if len(unchanged.Items) != 3 || unchanged.Items[0].ID != a.ID || unchanged.Items[1].Position != 1 {
+		t.Fatalf("invalid order changed the list: %+v", unchanged.Items)
+	}
+
+	reversed := map[string]any{"group_id": "Home", "ids": []string{b.ID, a.ID}}
+	f.expect(204, "PUT", "/v1/shortcut-order", first.Token, reversed, guard, nil)
+	f.expect(412, "PUT", "/v1/shortcut-order", second.Token,
+		map[string]any{"group_id": "Home", "ids": []string{a.ID, b.ID}}, guard, nil)
+
+	f.stop()
+	f.start()
+	var saved cardList
+	f.expect(200, "GET", "/v1/shortcuts", second.Token, nil, nil, &saved)
+	if len(saved.Items) != 3 || saved.Items[0].ID != b.ID || saved.Items[0].Position != 0 ||
+		saved.Items[1].ID != a.ID || saved.Items[1].Position != 1 ||
+		saved.Items[2].ID != other.ID || saved.Items[2].Position != 7 {
+		t.Fatalf("unexpected order after restart: %+v", saved.Items)
+	}
+}

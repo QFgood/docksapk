@@ -102,6 +102,7 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
     var page by remember { mutableStateOf<ServiceCard?>(null) }
     var edit by remember { mutableStateOf<ServiceCard?>(null) }
     var delete by remember { mutableStateOf<ServiceCard?>(null) }
+    var orderGroup by remember { mutableStateOf<String?>(null) }
     var unbind by rememberSaveable { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var diagnostic by remember { mutableStateOf("") }
@@ -176,7 +177,15 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
     suspend fun refresh(bound: Session, target: Tab) {
         when (target) {
             Tab.Services -> loadCards(bound)
-            Tab.Host -> host = api.read(bound, "/v1/hosts/local/status").data
+            Tab.Host -> {
+                val sample = api.read(bound, "/v1/hosts/local/status").data
+                if (sample.optString("sampled_at").isNotBlank()) {
+                    store.saveHost(bound.id, sample)
+                    host = sample
+                } else if (host == null) {
+                    host = sample
+                }
+            }
             Tab.Events -> loadEvents(bound)
             Tab.Settings -> {
                 loadSettings(bound)
@@ -187,6 +196,30 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
         }
         addressUsed = api.active
         online = true
+    }
+
+    fun reset() {
+        LocalNotice.clear(context)
+        store.clear()
+        session = null
+        demo = false
+        cards = emptyList()
+        events = emptyList()
+        host = null
+        detail = null
+        edit = null
+        delete = null
+        orderGroup = null
+        unbind = false
+        page = null
+        rules = null
+        settings = null
+        importNote = ""
+        eventCursor = ""
+        unread = 0
+        online = false
+        tab = Tab.Services
+        diagnostic = ""
     }
 
     fun runTask(affectsConnection: Boolean = true, block: suspend () -> Unit) {
@@ -201,9 +234,24 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
             } catch (e: Exception) {
                 message = explain(e)
                 if (affectsConnection && e !is ApiError) online = false
-                if (affectsConnection && e is ApiError && e.status == 401) online = false
+                if (affectsConnection && e is ApiError && e.status == 401) {
+                    if (e.code == "invalid_device" && session != null) reset() else online = false
+                }
                 if (e is ApiError && e.status == 412) {
-                    session?.let { runCatching { refresh(it, tab) } }
+                    session?.let {
+                        try {
+                            refresh(it, tab)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (refreshError: Exception) {
+                            online = false
+                            if (refreshError is ApiError && refreshError.status == 401 && refreshError.code == "invalid_device") {
+                                reset()
+                            }
+                            message += " ${explain(refreshError)}"
+                        }
+                    }
+                    orderGroup = null
                     edit = null
                     delete = null
                 }
@@ -221,9 +269,20 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
         } else {
             etag = null
             store.cache(bound.id)?.let(::consumeCards)
+            host = store.cachedHost(bound.id)
             runTask {
                 refresh(bound, tab)
-                if (tab != Tab.Settings) runCatching { loadSettings(bound) }
+                if (tab != Tab.Settings) {
+                    try {
+                        loadSettings(bound)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: ApiError) {
+                        if (error.status == 401 && error.code == "invalid_device") throw error
+                    } catch (_: java.io.IOException) {
+                        // The main page already loaded. Settings can be refreshed separately.
+                    }
+                }
             }
         }
     }
@@ -234,6 +293,8 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
         onRouteHandled()
         page = null
         edit = null
+        delete = null
+        orderGroup = null
         tab = Tab.Events
         val bound = session
         when {
@@ -260,26 +321,6 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
     fun saveDemo(items: List<ServiceCard>) {
         cards = items.sortedWith(compareBy({ it.group }, { it.position }, { it.name }))
         store.cache("demo", JSONObject().put("items", JSONArray(cards.map(ServiceCard::json))))
-    }
-
-    fun reset() {
-        LocalNotice.clear(context)
-        store.clear()
-        session = null
-        demo = false
-        cards = emptyList()
-        events = emptyList()
-        host = null
-        detail = null
-        page = null
-        rules = null
-        settings = null
-        importNote = ""
-        eventCursor = ""
-        unread = 0
-        online = false
-        tab = Tab.Services
-        diagnostic = ""
     }
 
     val openCard = page
@@ -362,7 +403,10 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
                     } }
                 })
             } else when (tab) {
-                Tab.Services -> Services(cards, demo, online, importNote, { page = it }, { edit = it })
+                Tab.Services -> Services(cards, demo, online, busy, importNote, { page = it }, { edit = it }, {
+                    message = ""
+                    orderGroup = it
+                })
                 Tab.Host -> HostScreen(host, demo, online)
                 Tab.Events -> EventsScreen(events, demo, unread, level, serviceFilter, eventCursor,
                     onLevel = { level = it; bound?.let { current -> runTask { loadEvents(current) } } },
@@ -407,6 +451,29 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
                 )
             }
         }
+    }
+
+    orderGroup?.let { group ->
+        val entries = cards.filter { it.group == group }
+        if (entries.size > 1) CardOrderDialog(group, entries, busy, message, onDismiss = {
+            orderGroup = null
+            message = ""
+        }, onSave = { ordered ->
+            if (demo) {
+                saveDemo(cards.filterNot { it.group == group } + ordered.mapIndexed { index, card ->
+                    card.copy(position = index)
+                })
+                orderGroup = null
+            } else bound?.let { current ->
+                runTask {
+                    val payload = JSONObject().put("group_id", group).put("ids", JSONArray(ordered.map { it.id }))
+                    api.write(current, "/v1/shortcut-order", "PUT", payload,
+                        mapOf("If-Match" to requireNotNull(etag)))
+                    orderGroup = null
+                    loadCards(current, false)
+                }
+            }
+        })
     }
 
     val editing = edit
@@ -536,8 +603,8 @@ internal fun StatusLine(text: String, error: Boolean = false, modifier: Modifier
 }
 
 @Composable
-private fun Services(cards: List<ServiceCard>, demo: Boolean, online: Boolean, importNote: String,
-    onOpen: (ServiceCard) -> Unit, onEdit: (ServiceCard) -> Unit) {
+private fun Services(cards: List<ServiceCard>, demo: Boolean, online: Boolean, busy: Boolean, importNote: String,
+    onOpen: (ServiceCard) -> Unit, onEdit: (ServiceCard) -> Unit, onOrder: (String) -> Unit) {
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 10.dp, 20.dp, 92.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (demo) item { StatusLine("演示卡片保存在这台手机。测试项目可在应用内直接打开。") }
@@ -548,8 +615,15 @@ private fun Services(cards: List<ServiceCard>, demo: Boolean, online: Boolean, i
             Text(if (online || demo) "新增 HTTPS 服务，或由管理员导入导航。" else "恢复连接后可刷新卡片。")
         }
         for ((group, entries) in cards.groupBy { it.group }) {
-            item { Text(group, Modifier.padding(top = 10.dp, bottom = 2.dp),
-                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(group, Modifier.weight(1f).padding(top = 10.dp, bottom = 2.dp),
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    if (entries.size > 1) {
+                        TextButton(enabled = (demo || online) && !busy, onClick = { onOrder(group) }) { Text("排序") }
+                    }
+                }
+            }
             items(entries, key = { it.id }) { item ->
                 Card(colors = CardDefaults.cardColors(containerColor = Color.White),
                     shape = RoundedCornerShape(18.dp)) {
