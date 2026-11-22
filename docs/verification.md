@@ -9,6 +9,8 @@
 | 测试项目 | 后端接收表单 POST、保留独立 Cookie，页面安全回显输入 |
 | 事件 | Webhook 独立鉴权、按来源事件 ID 去重，事件和共享已读状态在重启后保留 |
 | Ubuntu 采集 | Linux amd64 采样真实主机指标和 Docker 容器，记录退出码 7 与健康检查失败，状态 API 返回不健康快照 |
+| Android 构建 | Gradle Wrapper 在 JDK 17 上完成 Debug、Release 和 Lint。Lint 无错误 |
+| APK 签名 | v2/v3 签名及 APK 对齐通过，最低 API 26、目标 API 35，包含 arm64-v8a、armeabi-v7a、x86、x86_64 |
 | API 文档 | OpenAPI 3.0.3 YAML 可解析，内部引用可解析 |
 
 测试命令和部署方法见[部署与升级](setup.md)。
