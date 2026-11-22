@@ -38,7 +38,19 @@ func validLevel(level string) bool {
 }
 
 func RecordEvent(db *sql.DB, e Event) (Event, error) {
-	var err error
+	tx, err := db.Begin()
+	if err != nil {
+		return Event{}, err
+	}
+	defer tx.Rollback()
+	out, err := recordEvent(tx, e)
+	if err != nil {
+		return Event{}, err
+	}
+	return out, tx.Commit()
+}
+
+func recordEvent(tx *sql.Tx, e Event) (Event, error) {
 	if e.Occurred == "" {
 		e.Occurred = now()
 	} else {
@@ -49,11 +61,6 @@ func RecordEvent(db *sql.DB, e Event) (Event, error) {
 		e.Occurred = stamp(t)
 	}
 	e.ID, e.Received = randomID(16), now()
-	tx, err := db.Begin()
-	if err != nil {
-		return Event{}, err
-	}
-	defer tx.Rollback()
 	if e.Recovery != "" {
 		var id string
 		err := tx.QueryRow("SELECT id FROM events WHERE id = ? AND source = ? AND service = ?", e.Recovery, e.Source, e.Service).Scan(&id)
@@ -62,17 +69,13 @@ func RecordEvent(db *sql.DB, e Event) (Event, error) {
 		}
 		e.Recovery = id
 	}
-	_, err = tx.Exec(`INSERT INTO events(id, source, source_id, occurred_at, received_at, service, level, summary, shortcut_id, recovery_of)
+	_, err := tx.Exec(`INSERT INTO events(id, source, source_id, occurred_at, received_at, service, level, summary, shortcut_id, recovery_of)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source, source_id) DO NOTHING`,
 		e.ID, e.Source, e.SourceID, e.Occurred, e.Received, e.Service, e.Level, e.Summary, e.ShortcutID, e.Recovery)
 	if err != nil {
 		return Event{}, err
 	}
-	out, err := readEvent(tx.QueryRow("SELECT "+eventFields+" FROM events WHERE source = ? AND source_id = ?", e.Source, e.SourceID))
-	if err != nil {
-		return Event{}, err
-	}
-	return out, tx.Commit()
+	return readEvent(tx.QueryRow("SELECT "+eventFields+" FROM events WHERE source = ? AND source_id = ?", e.Source, e.SourceID))
 }
 
 func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {

@@ -60,6 +60,8 @@ curl --fail-with-body https://hub.example.net/v1/webhooks/example \
 
 应用可另传 `shortcut_id` 将事件关联到卡片，或用 `recovery_of` 关联同一来源和服务的原事件。只提交可展示的摘要。Webhook 重复投递会返回同一条事件；已读状态在同实例各设备同步。主机每 30 秒采样，详细数据保留 24 小时、5 分钟聚合保留 7 天，事件默认保留 30 天。Docker 采集短时断开后尝试在有限的缓冲中补录，可能不完整时会生成缺口事件。
 
+Docker 健康检查只记录状态变化。同一容器恢复健康时，恢复事件会关联最近一次未恢复的告警。相同容器的相同异常退出或 OOM 告警在 5 分钟内只记录一次。每批 Docker 事件和采集游标同时提交，写入失败时会保留上次游标以便重试。
+
 ## 构建与升级
 
 Android 使用 JDK 17、Gradle Wrapper 8.10.2、AGP 8.7.3、SDK 35。安装 SDK Platform 35 和 Build Tools 34.0.0（AGP 默认）后执行：
