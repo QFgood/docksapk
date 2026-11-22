@@ -25,7 +25,18 @@ type Event struct {
 	Read       bool   `json:"read"`
 }
 
-const eventFields = "id, source, source_id, occurred_at, received_at, service, level, summary, shortcut_id, recovery_of, read"
+const eventFieldsBeforeShortcut = "id, source, source_id, occurred_at, received_at, service, level, summary, "
+const eventFieldsAfterShortcut = ", recovery_of, read"
+const eventFields = eventFieldsBeforeShortcut + "shortcut_id" + eventFieldsAfterShortcut
+
+// Resolve the configured Docker link when reading history, so changing an
+// association or hiding a card also updates previously collected events.
+const apiEventFields = eventFieldsBeforeShortcut + `CASE
+	WHEN source = 'docker' AND shortcut_id = '' AND substr(source_id, 1, 4) <> 'gap-' THEN COALESCE(
+		(SELECT s.id FROM json_each(?) AS mapping
+		 JOIN shortcuts AS s ON s.id = mapping.value AND s.hidden = 0
+		 WHERE mapping.key = events.service), '')
+	ELSE shortcut_id END` + eventFieldsAfterShortcut
 
 func readEvent(row interface{ Scan(...any) error }) (Event, error) {
 	var e Event
@@ -139,7 +150,7 @@ func (s *Server) event(w http.ResponseWriter, r *http.Request, d device) {
 		w.WriteHeader(204)
 		return
 	}
-	e, err := readEvent(s.db.QueryRowContext(r.Context(), "SELECT "+eventFields+" FROM events WHERE id = ?", id))
+	e, err := readEvent(s.db.QueryRowContext(r.Context(), "SELECT "+apiEventFields+" FROM events WHERE id = ?", s.dockerShortcuts, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		fail(w, 404, "event_not_found")
 		return
@@ -188,9 +199,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, d device) {
 		internal(w, err)
 		return
 	}
-	rows, err := tx.Query("SELECT "+eventFields+` FROM events WHERE (? = '' OR level = ?) AND (? = '' OR service = ?)
+	rows, err := tx.Query("SELECT "+apiEventFields+` FROM events WHERE (? = '' OR level = ?) AND (? = '' OR service = ?)
 		AND (? = '' OR (occurred_at, id) < (?, ?)) ORDER BY occurred_at DESC, id DESC LIMIT ?`,
-		level, level, service, service, at, at, id, limit+1)
+		s.dockerShortcuts, level, level, service, service, at, at, id, limit+1)
 	if err != nil {
 		internal(w, err)
 		return

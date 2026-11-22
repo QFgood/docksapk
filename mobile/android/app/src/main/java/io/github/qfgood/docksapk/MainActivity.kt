@@ -164,6 +164,17 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
         eventCursor = data.optString("next_cursor")
     }
 
+    suspend fun openEvent(bound: Session, id: String) {
+        val event = api.read(bound, "/v1/events/$id").data
+        detail = event
+        api.write(bound, "/v1/events/$id/read", "PUT")
+        val shortcut = event.optString("shortcut_id")
+        if (shortcut.isNotBlank() && cards.none { it.id == shortcut }) {
+            loadCards(bound)
+        }
+        loadEvents(bound)
+    }
+
     suspend fun loadSettings(bound: Session) {
         val result = api.read(bound, "/v1/settings").data
         val updated = bound.copy(
@@ -303,9 +314,7 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
                 detail = demoEvent
             }
             bound != null && route.instance == bound.id -> runTask {
-                detail = api.read(bound, "/v1/events/${route.event}").data
-                api.write(bound, "/v1/events/${route.event}/read", "PUT")
-                loadEvents(bound)
+                openEvent(bound, route.event)
             }
             else -> message = "此通知对应的实例未绑定。"
         }
@@ -397,9 +406,7 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
             if (selectedEvent != null) {
                 EventDetail(selectedEvent, cards, onOpen = { page = it }, onRelated = { id ->
                     bound?.let { runTask {
-                        detail = api.read(it, "/v1/events/$id").data
-                        api.write(it, "/v1/events/$id/read", "PUT")
-                        loadEvents(it)
+                        openEvent(it, id)
                     } }
                 })
             } else when (tab) {
@@ -415,10 +422,7 @@ private fun Hub(store: LocalStore, incoming: NoticeRoute?, onRouteHandled: () ->
                     onMore = { bound?.let { runTask { loadEvents(it, true) } } },
                     onEvent = { item ->
                         if (demo) detail = item else bound?.let { runTask {
-                            val id = item.getString("id")
-                            detail = api.read(it, "/v1/events/$id").data
-                            api.write(it, "/v1/events/$id/read", "PUT")
-                            loadEvents(it)
+                            openEvent(it, item.getString("id"))
                         } }
                     },
                 )

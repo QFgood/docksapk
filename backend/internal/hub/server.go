@@ -14,20 +14,22 @@ import (
 )
 
 type Config struct {
-	Name      string
-	LAN       string
-	Remote    string
-	Demo      bool
-	Webhooks  map[string]string
-	Collector string
+	Name            string
+	LAN             string
+	Remote          string
+	Demo            bool
+	Webhooks        map[string]string
+	Collector       string
+	DockerShortcuts map[string]string
 }
 
 type Server struct {
-	db           *sql.DB
-	config       Config
-	pairMu       sync.Mutex
-	pairWindow   time.Time
-	pairFailures int
+	db              *sql.DB
+	config          Config
+	dockerShortcuts string
+	pairMu          sync.Mutex
+	pairWindow      time.Time
+	pairFailures    int
 }
 
 type device struct {
@@ -36,7 +38,7 @@ type device struct {
 }
 
 func New(db *sql.DB, config Config) http.Handler {
-	s := &Server{db: db, config: config}
+	s := &Server{db: db, config: config, dockerShortcuts: pack(config.DockerShortcuts)}
 	m := http.NewServeMux()
 	m.HandleFunc("GET /v1/about", s.about)
 	m.HandleFunc("POST /v1/pair", s.pair)

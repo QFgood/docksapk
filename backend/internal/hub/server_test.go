@@ -16,11 +16,12 @@ import (
 )
 
 type fixture struct {
-	t      *testing.T
-	path   string
-	db     *sql.DB
-	server *httptest.Server
-	client *http.Client
+	t               *testing.T
+	path            string
+	db              *sql.DB
+	server          *httptest.Server
+	client          *http.Client
+	dockerShortcuts map[string]string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -37,7 +38,7 @@ func (f *fixture) start() {
 		f.t.Fatal(err)
 	}
 	f.server = httptest.NewTLSServer(New(f.db, Config{Name: "Test", Demo: true,
-		Webhooks: map[string]string{"ci": "test-source-key-not-used-in-prod"}}))
+		Webhooks: map[string]string{"ci": "test-source-key-not-used-in-prod"}, DockerShortcuts: f.dockerShortcuts}))
 	f.client = f.server.Client()
 	f.client.Jar, _ = cookiejar.New(nil)
 }

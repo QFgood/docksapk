@@ -116,3 +116,67 @@ func TestDockerBatchRollsBackCursorAndHistoryTogether(t *testing.T) {
 		t.Fatalf("expected resumed batch to contain gap, start and OOM, got %d events", count)
 	}
 }
+
+func TestDockerEventLinksResolveExistingHistoryAndFollowCardVisibility(t *testing.T) {
+	f := newFixture(t)
+	phone := f.pair()
+	input := []ImportItem{{SourceID: "sample", Card: Card{Name: "Test service", Group: "Home", LAN: f.server.URL + "/demo/"}}}
+	if err := Import(context.Background(), f.db, "test-source", input); err != nil {
+		t.Fatal(err)
+	}
+	shortcuts, err := ListShortcuts(context.Background(), f.db)
+	if err != nil || len(shortcuts) != 1 {
+		t.Fatalf("expected visible imported card: %+v, %v", shortcuts, err)
+	}
+	shortcut := shortcuts[0].ID
+
+	record := func(source, id, service, link string) Event {
+		t.Helper()
+		event, err := RecordEvent(f.db, Event{Source: source, SourceID: id,
+			Service: service, Level: "warning", Summary: "test", ShortcutID: link})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return event
+	}
+	alarm := record("docker", "aa:die:123", "demo", "")
+	gap := record("docker", "gap-123", "Docker", "")
+	unknown := record("docker", "ab:die:124", "Demo", "")
+	webhook := record("webhook:ci", "sample", "demo", "")
+	explicit := record("webhook:ci", "explicit", "demo", shortcut)
+
+	f.stop()
+	f.dockerShortcuts = map[string]string{"demo": shortcut, "Docker": shortcut}
+	f.start()
+	expectLink := func(id, want string) {
+		t.Helper()
+		var event Event
+		f.expect(200, "GET", "/v1/events/"+id, phone.Token, nil, nil, &event)
+		if event.ShortcutID != want {
+			t.Fatalf("event %q link = %q, want %q", id, event.ShortcutID, want)
+		}
+	}
+	expectLink(alarm.ID, shortcut)
+	expectLink(gap.ID, "")
+	expectLink(unknown.ID, "")
+	expectLink(webhook.ID, "")
+	expectLink(explicit.ID, shortcut)
+	var history struct{ Items []Event }
+	f.expect(200, "GET", "/v1/events?service=demo", phone.Token, nil, nil, &history)
+	for _, event := range history.Items {
+		if event.ID == alarm.ID && event.ShortcutID != shortcut {
+			t.Fatal("timeline did not match event detail")
+		}
+	}
+	if len(history.Items) != 3 {
+		t.Fatalf("expected three events for demo, got %d", len(history.Items))
+	}
+	if err := Import(context.Background(), f.db, "test-source", []ImportItem{}); err != nil {
+		t.Fatal(err)
+	}
+	expectLink(alarm.ID, "")
+	if err := Import(context.Background(), f.db, "test-source", input); err != nil {
+		t.Fatal(err)
+	}
+	expectLink(alarm.ID, shortcut)
+}
