@@ -2,7 +2,7 @@
 
 用 Android 手机上的一个入口打开自托管项目、查看 Ubuntu 状态和浏览事件。早期测试版包含免配对演示，安装后可直接试用。
 
-[下载 Android 测试 APK](https://github.com/QFgood/docksapk/releases/tag/v0.1.2) · [Ubuntu 后端](https://github.com/QFgood/docksapk/releases/tag/v0.1.0) · [部署和配对](docs/setup.md) · [验收记录](docs/verification.md) · [OpenAPI](api/openapi.yaml)
+[下载 Android 测试 APK](https://github.com/QFgood/docksapk/releases/tag/v0.1.2) · [Ubuntu 后端](https://github.com/QFgood/docksapk/releases/tag/backend-v0.1.1) · [部署和配对](docs/setup.md) · [验收记录](docs/verification.md) · [OpenAPI](api/openapi.yaml)
 
 ## 手机测试
 
