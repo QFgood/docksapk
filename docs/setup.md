@@ -103,4 +103,15 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o docksd ./cmd/docksd
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o docks-collector ./cmd/docks-collector
 ```
 
-升级前停止 `docksd`，用 SQLite 在线备份接口生成一致备份，或在进程停止后用 `sqlite3 /var/lib/docksapk/docks.db '.backup /path/to/protected/docks.db'` 备份。保留原软件和配置。替换二进制后重启并检查 `/healthz`，再验证配对设备访问及历史。需要回滚时停服务并一起恢复匹配的旧二进制和数据库。备份包含设备凭证摘要与内网服务地址，应限制读权限。
+## 数据库备份与恢复
+
+升级前停止 `docksd`，用 SQLite 的 `.backup` 命令生成一致备份，并保留原二进制和配置。把以下命令中的备份路径替换成服务用户可写的新文件。后端运行时也可以通过 SQLite 在线备份接口生成一致快照。
+
+```sh
+sudo -u docks sqlite3 /var/lib/docksapk/docks.db '.backup /path/to/protected/docks.db'
+sudo -u docks sqlite3 /path/to/protected/docks.db 'PRAGMA quick_check;'
+```
+
+升级后先检查 `/healthz`，再用已有配对设备核对卡片和事件历史。恢复或回滚时保持服务停止，把当前数据库及可能存在的同名 `-wal` 和 `-shm` 文件移到受保护的目录，再将备份复制到原数据库路径。将恢复后的数据库归属设为 `docks:docks`，文件权限设为 `0600`。回滚时使用与备份匹配的旧二进制和配置。
+
+数据恢复到备份时间点。对备份之后撤销的设备，恢复后、启动服务前应再次用 `docksd revoke` 撤销。数据库和备份含设备凭证摘要与内网服务地址，应限制读权限。
