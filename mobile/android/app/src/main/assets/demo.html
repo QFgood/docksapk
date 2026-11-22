@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; form-action 'none'">
+  <title>测试项目</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; background: #eff5f2; color: #123930; font: 1rem/1.6 system-ui, sans-serif; }
+    main { max-width: 490px; margin: 28px auto; padding: 25px; background: white; border-radius: 22px; }
+    h1 { margin: 0; font-size: 1.65rem; }
+    input, button { display: block; min-height: 46px; width: 100%; margin-top: 9px; padding: 8px 12px; border-radius: 10px; font: inherit; }
+    input { border: 1px solid #829e95; }
+    button { background: #10493f; color: white; border: 0; }
+    output { overflow-wrap: anywhere; }
+    output:not(:empty) { display: block; background: #dcf3e7; padding: 14px; border-radius: 10px; margin-top: 20px; }
+  </style>
+  <script src="demo.js" defer></script>
+</head>
+<body>
+<main>
+  <h1>测试项目</h1>
+  <p>这是 APK 内置的网页。输入文字可体验网页表单和状态保留。</p>
+  <form id="demo">
+    <label>测试内容 <input id="message" required maxlength="100"></label>
+    <button type="submit">提交表单</button>
+  </form>
+  <output id="receipt" aria-live="polite"></output>
+</main>
+</body>
+</html>

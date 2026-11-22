@@ -1,0 +1,398 @@
+openapi: 3.0.3
+info:
+  title: DocksAPK API
+  version: 0.1.0
+servers:
+  - url: https://hub.example.net
+security:
+  - DeviceToken: []
+paths:
+  /healthz:
+    get:
+      security: []
+      summary: Check local API and database
+      responses:
+        '200': {description: Database available}
+        '503': {description: Database unavailable}
+  /v1/about:
+    get:
+      security: []
+      summary: Verify API compatibility and instance ID before sending credentials
+      responses:
+        '200':
+          description: Public instance information
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instance_id, name, api_version, capabilities]
+                properties:
+                  instance_id: {type: string}
+                  name: {type: string}
+                  api_version: {type: integer, enum: [1]}
+                  capabilities: {type: array, items: {type: string}}
+  /v1/pair:
+    post:
+      security: []
+      summary: Exchange a five-minute single-use code for a device credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, device_name, instance_id]
+              properties:
+                code: {type: string, pattern: '^[a-fA-F0-9]{12}$'}
+                device_name: {type: string}
+                instance_id: {type: string}
+      responses:
+        '201':
+          description: Device paired
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device, token, instance_id]
+                properties:
+                  device: {$ref: '#/components/schemas/Device'}
+                  token: {type: string}
+                  instance_id: {type: string}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {description: Pairing rate limited; try again in 60 seconds}
+  /v1/shortcuts:
+    get:
+      summary: Get visible shortcuts and import status
+      parameters:
+        - {name: If-None-Match, in: header, schema: {type: string}}
+      responses:
+        '200':
+          description: Current shortcuts
+          headers: {ETag: {$ref: '#/components/headers/ETag'}}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, revision, imports]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Shortcut'}}
+                  revision: {type: integer}
+                  imports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source: {type: string}
+                        last_success: {type: string}
+                        error: {type: string}
+        '304': {description: List revision unchanged}
+    post:
+      summary: Create a manual shortcut
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema: {type: string, maxLength: 120}
+          description: Retry a matching request for this device within 24 hours
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/CardFields'
+                - required: [name, group_id, position, lan_url]
+            example:
+              name: Project
+              group_id: Home
+              position: 0
+              lan_url: https://project.example.net/
+      responses:
+        '201': {$ref: '#/components/responses/Shortcut'}
+        '200': {$ref: '#/components/responses/Shortcut'}
+        '400': {$ref: '#/components/responses/Error'}
+        '409': {description: Same idempotency key with different data}
+  /v1/shortcuts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+      - $ref: '#/components/parameters/IfMatch'
+    patch:
+      summary: Edit fields or restore imported values
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/CardFields'
+                - type: object
+                  properties:
+                    clear_override: {type: boolean, description: Restore source fields for imported cards}
+      responses:
+        '200': {$ref: '#/components/responses/Shortcut'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '412': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+    delete:
+      summary: Remove a manual card or hide an imported card
+      responses:
+        '204': {description: Removed, headers: {ETag: {$ref: '#/components/headers/ETag'}}}
+        '404': {$ref: '#/components/responses/Error'}
+        '412': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /v1/shortcut-order:
+    put:
+      summary: Set the order for all visible cards in one group
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group_id, ids]
+              properties:
+                group_id: {type: string}
+                ids: {type: array, minItems: 1, maxItems: 1000, uniqueItems: true, items: {type: string}}
+      responses:
+        '204': {description: Reordered, headers: {ETag: {$ref: '#/components/headers/ETag'}}}
+        '400': {$ref: '#/components/responses/Error'}
+        '412': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /v1/hosts/{id}/status:
+    get:
+      summary: Latest Ubuntu sample and Docker snapshot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, enum: [local]}
+      responses:
+        '200':
+          description: Sample; if no collection has succeeded, state is unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Host'}
+        '404': {$ref: '#/components/responses/Error'}
+  /v1/events:
+    get:
+      summary: List events newest first with global unread count
+      parameters:
+        - {name: level, in: query, schema: {$ref: '#/components/schemas/Level'}}
+        - {name: service, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, default: 30, minimum: 1, maximum: 100}}
+        - {name: cursor, in: query, schema: {type: string}}
+      responses:
+        '200':
+          description: Event page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor, unread]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Event'}}
+                  next_cursor: {type: string, description: Empty when no further page exists}
+                  unread: {type: integer}
+        '400': {$ref: '#/components/responses/Error'}
+  /v1/events/{id}:
+    get:
+      summary: Get event details
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200': {$ref: '#/components/responses/Event'}
+        '404': {$ref: '#/components/responses/Error'}
+  /v1/events/{id}/read:
+    put:
+      summary: Mark an event as read across devices
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '204': {description: Read}
+        '404': {$ref: '#/components/responses/Error'}
+  /v1/settings:
+    get:
+      summary: Read device settings and configured API origins
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device: {$ref: '#/components/schemas/Device'}
+                  lan_url: {type: string}
+                  tailnet_url: {type: string}
+                  push_status: {type: string, enum: [unconfigured]}
+  /v1/notification-rules:
+    get:
+      summary: Read shared notification preferences
+      responses:
+        '200': {$ref: '#/components/responses/Rules'}
+    put:
+      summary: Save shared notification preferences
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Rules'}
+      responses:
+        '200': {$ref: '#/components/responses/Rules'}
+        '400': {$ref: '#/components/responses/Error'}
+        '412': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /v1/devices/current:
+    delete:
+      summary: Revoke the caller's device credential
+      responses:
+        '204': {description: Revoked}
+        '401': {$ref: '#/components/responses/Error'}
+  /v1/webhooks/{source}:
+    post:
+      security:
+        - WebhookKey: []
+      summary: Record an event, deduplicated by webhook source and source_event_id
+      parameters:
+        - {name: source, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_event_id, service, level, summary]
+              properties:
+                source_event_id: {type: string}
+                occurred_at: {type: string, format: date-time}
+                service: {type: string}
+                level: {$ref: '#/components/schemas/Level'}
+                summary: {type: string}
+                shortcut_id: {type: string}
+                recovery_of: {type: string}
+            example: {source_event_id: alert-001, service: Project, level: warning, summary: Project test alert}
+      responses:
+        '200': {$ref: '#/components/responses/Event'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    DeviceToken: {type: http, scheme: bearer}
+    WebhookKey: {type: http, scheme: bearer}
+  parameters:
+    ID: {name: id, in: path, required: true, schema: {type: string}}
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: {type: string}
+      description: Quote-delimited version from the corresponding list or preferences
+  headers:
+    ETag: {schema: {type: string}, description: Quote-delimited current version}
+  responses:
+    Error:
+      description: Request failed
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties: {error: {type: string}}
+    Shortcut:
+      description: Saved shortcut
+      headers: {ETag: {$ref: '#/components/headers/ETag'}}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Shortcut'}
+    Event:
+      description: Event record
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Event'}
+    Rules:
+      description: Notification preferences
+      headers: {ETag: {$ref: '#/components/headers/ETag'}}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Rules'}
+  schemas:
+    Device:
+      type: object
+      required: [id, name]
+      properties:
+        id: {type: string}
+        name: {type: string}
+    CardFields:
+      type: object
+      properties:
+        name: {type: string}
+        group_id: {type: string}
+        position: {type: integer, minimum: 0, maximum: 100000}
+        icon: {type: string}
+        lan_url: {type: string, format: uri}
+        tailnet_url: {type: string}
+        trusted_origins: {type: array, items: {type: string}}
+    Shortcut:
+      allOf:
+        - $ref: '#/components/schemas/CardFields'
+        - type: object
+          required: [id, host_id, name, group_id, position, lan_url, source, revision, overridden]
+          properties:
+            id: {type: string}
+            host_id: {type: string, enum: [local]}
+            source: {type: string}
+            source_id: {type: string}
+            revision: {type: integer}
+            overridden: {type: boolean}
+    Level: {type: string, enum: [info, warning, critical]}
+    Event:
+      type: object
+      properties:
+        id: {type: string}
+        source: {type: string}
+        source_id: {type: string}
+        occurred_at: {type: string, format: date-time}
+        received_at: {type: string, format: date-time}
+        service: {type: string}
+        level: {$ref: '#/components/schemas/Level'}
+        summary: {type: string}
+        shortcut_id: {type: string}
+        recovery_of: {type: string}
+        read: {type: boolean}
+    Host:
+      type: object
+      properties:
+        state: {type: string, enum: [unavailable]}
+        sampled_at: {type: string, format: date-time}
+        cpu_percent: {type: number}
+        memory_used: {type: integer, format: int64}
+        memory_total: {type: integer, format: int64}
+        disk_used: {type: integer, format: int64}
+        disk_total: {type: integer, format: int64}
+        rx_bps: {type: integer, format: int64}
+        tx_bps: {type: integer, format: int64}
+        uptime_seconds: {type: integer, format: int64}
+        docker_state: {type: string, enum: [disabled, unavailable, ok]}
+        docker_sampled_at: {type: string, format: date-time}
+        containers:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              name: {type: string}
+              state: {type: string}
+              health: {type: string}
+              project: {type: string}
+    Rules:
+      type: object
+      properties:
+        enabled: {type: boolean}
+        levels: {type: array, items: {$ref: '#/components/schemas/Level'}}
+        show_service_name: {type: boolean}

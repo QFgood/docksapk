@@ -1,0 +1,29 @@
+[Unit]
+Description=DocksAPK read-only Docker collector
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=docks-collector
+Group=docks
+SupplementaryGroups=docker
+RuntimeDirectory=docks-collector
+RuntimeDirectoryMode=0750
+UMask=0007
+ExecStart=/usr/local/bin/docks-collector --socket /run/docks-collector/docker.sock
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
